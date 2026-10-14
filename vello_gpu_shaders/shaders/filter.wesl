@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 import package::filters::blur::{BLUR_HORIZONTAL, BLUR_VERTICAL, gaussian_blur};
+import package::filters::color_matrix::color_matrix;
 import package::filters::drop_shadow::{
     colorize_drop_shadow,
     composite_drop_shadow,
@@ -32,6 +33,7 @@ const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
+const FILTER_TYPE_COLOR_MATRIX: u32 = 4u;
 
 const PASS_COPY: u32 = 0u;
 const PASS_FLOOD: u32 = 1u;
@@ -42,6 +44,7 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 const PASS_COLORIZE: u32 = 8u;
+const PASS_COLOR_MATRIX: u32 = 9u;
 
 // Keep in sync with FILTER_ATLAS_PADDING in vello_gpu/src/filter.rs.
 const FILTER_ATLAS_PADDING: u32 = 6u;
@@ -268,6 +271,14 @@ fn fs_main(
                 source_origin,
                 rel_coord,
                 filter_texel2,
+            );
+        }
+        case PASS_COLOR_MATRIX: {
+            return color_matrix(
+                sample_source(source_origin, rel_coord),
+                load_filter_texel(filter_data_offset, 0u),
+                load_filter_texel(filter_data_offset, 1u),
+                load_filter_texel(filter_data_offset, 2u),
             );
         }
         // Shouldn't be reached.

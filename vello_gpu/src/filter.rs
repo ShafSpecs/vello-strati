@@ -8,6 +8,7 @@ use crate::schedule::round::FilterOp;
 use crate::util::pack_u16_pair;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
@@ -56,12 +57,17 @@ const _: () = assert!(
     size_of::<GpuGaussianBlur>() == FILTER_SIZE_BYTES,
     "memory size of filters need to match"
 );
+const _: () = assert!(
+    size_of::<GpuColorMatrix>() == FILTER_SIZE_BYTES,
+    "memory size of filters need to match"
+);
 
 pub(crate) mod filter_type {
     pub(crate) const OFFSET: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const GAUSSIAN_BLUR: u32 = 2;
     pub(crate) const DROP_SHADOW: u32 = 3;
+    pub(crate) const COLOR_MATRIX: u32 = 4;
 }
 
 pub(crate) mod edge_mode {
@@ -81,6 +87,7 @@ pub(crate) mod pass_kind {
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
     pub(crate) const COLORIZE: u32 = 8;
+    pub(crate) const COLOR_MATRIX: u32 = 9;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -310,6 +317,26 @@ impl From<&DropShadow> for GpuDropShadow {
     }
 }
 
+/// A 4x5 color matrix, its 20 coefficients packed as pairs of f16 (enough
+/// for 8-bit color: coefficients are within a few units, offsets within one).
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
+pub(crate) struct GpuColorMatrix {
+    pub header: u32,
+    pub coefficients: [u32; 10],
+    pub _padding: [u32; 1],
+}
+
+impl From<&ColorMatrix> for GpuColorMatrix {
+    fn from(color_matrix: &ColorMatrix) -> Self {
+        Self {
+            header: pack_header(filter_type::COLOR_MATRIX),
+            coefficients: color_matrix.packed_f16(),
+            _padding: [0; 1],
+        }
+    }
+}
+
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub(crate) struct GpuFilterData {
@@ -349,6 +376,7 @@ impl CastToFilterData for GpuOffset {}
 impl CastToFilterData for GpuFlood {}
 impl CastToFilterData for GpuGaussianBlur {}
 impl CastToFilterData for GpuDropShadow {}
+impl CastToFilterData for GpuColorMatrix {}
 
 impl<T: CastToFilterData> From<T> for GpuFilterData {
     fn from(filter: T) -> Self {
@@ -363,6 +391,7 @@ impl From<&PreparedFilter> for GpuFilterData {
             PreparedFilter::Flood(f) => GpuFlood::from(f).into(),
             PreparedFilter::GaussianBlur(f) => GpuGaussianBlur::from(f).into(),
             PreparedFilter::DropShadow(f) => GpuDropShadow::from(f).into(),
+            PreparedFilter::ColorMatrix(f) => GpuColorMatrix::from(f).into(),
         }
     }
 }
@@ -440,6 +469,9 @@ impl FilterPassPlan {
                 }
                 filter_type::FLOOD => {
                     builder.emit(pass_kind::FLOOD);
+                }
+                filter_type::COLOR_MATRIX => {
+                    builder.emit(pass_kind::COLOR_MATRIX);
                 }
                 filter_type::GAUSSIAN_BLUR => {
                     builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
@@ -913,3 +945,4 @@ mod tests {
         check_linear_kernel(&kernel, size, 3);
     }
 }
+
