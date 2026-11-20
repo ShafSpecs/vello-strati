@@ -364,11 +364,11 @@ fn fs_main(
         }
         case PASS_COLOR_MATRIX {
             return color_matrix(
-                sample_source(source_origin, rel_coord),
-                load_filter_texel(filter_data_offset, 0u),
-                load_filter_texel(filter_data_offset, 1u),
-                load_filter_texel(filter_data_offset, 2u),
-            );
+                    sample_source(source_origin, rel_coord),
+                    load_filter_texel(filter_data_offset, 0u),
+                    load_filter_texel(filter_data_offset, 1u),
+                    load_filter_texel(filter_data_offset, 2u),
+                );
         }
         // Shouldn't be reached.
         default { return vec4<f32>(0.0); }
