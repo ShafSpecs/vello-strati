@@ -16,6 +16,8 @@ mod offset;
 mod shift;
 
 use context::ScratchBuffer;
+use vello_common::color::{PremulColor, Srgb};
+use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
@@ -42,6 +44,19 @@ pub(crate) trait FilterEffect {
     /// * `pixmap` - The target pixmap containing rendering metadata
     /// * `filter_scratch` - Reusable scratch storage for intermediate buffers
     fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer);
+}
+
+impl FilterEffect for ColorMatrix {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, _filter_scratch: &mut ScratchBuffer) {
+        for pixel in pixmap.data_mut() {
+            let rgba = [pixel.r, pixel.g, pixel.b, pixel.a].map(|c| f32::from(c) / 255.0);
+            *pixel = PremulColor::<Srgb>::new(self.apply_premultiplied(rgba)).to_rgba8();
+        }
+    }
+
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
+        self.execute_lowp(pixmap, filter_scratch);
+    }
 }
 
 /// Apply the low-precision (u8) version of a filter effect to a layer.
@@ -79,6 +94,7 @@ pub(crate) fn filter_lowp(
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_lowp(pixmap, filter_scratch);
         }
+        PreparedFilter::ColorMatrix(matrix) => matrix.execute_lowp(pixmap, filter_scratch),
     }
 }
 
@@ -117,5 +133,6 @@ pub(crate) fn filter_highp(
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_highp(pixmap, filter_scratch);
         }
+        PreparedFilter::ColorMatrix(matrix) => matrix.execute_highp(pixmap, filter_scratch),
     }
 }
