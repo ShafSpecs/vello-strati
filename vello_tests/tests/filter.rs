@@ -20,6 +20,77 @@ use vello_cpu::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn color_matrix_gpu_pixels() {
+    use crate::renderer::GpuRenderer;
+    use vello_cpu::{Level, RenderMode};
+    check_color_matrix_pixels(GpuRenderer::new(
+        16,
+        16,
+        0,
+        Level::baseline(),
+        RenderMode::OptimizeSpeed,
+    ));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn color_matrix_cpu_pixels() {
+    use crate::renderer::CpuRenderer;
+    use vello_cpu::{Level, RenderMode};
+    for mode in [RenderMode::OptimizeSpeed, RenderMode::OptimizeQuality] {
+        check_color_matrix_pixels(CpuRenderer::new(16, 16, 0, Level::baseline(), mode));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_color_matrix_pixels(mut ctx: impl Renderer) {
+    use vello_common::filter::color_matrix::ColorMatrix;
+    use vello_common::filter_effects::matrices;
+
+    let mut clamp_alpha = matrices::IDENTITY;
+    clamp_alpha[0] = 4.0;
+    clamp_alpha[6] = -1.0;
+    clamp_alpha[18] = 0.5;
+    let mut offset = matrices::IDENTITY;
+    offset[4] = 0.5;
+    offset[19] = 0.5;
+    let cases = [
+        (matrices::IDENTITY, [0.5, 0.25, 0.75, 0.5]),
+        (matrices::GRAYSCALE, [1.0, 0.0, 0.0, 1.0]),
+        (clamp_alpha, [0.5, 0.5, 0.25, 0.5]),
+        (offset, [0.0; 4]),
+    ];
+    for (matrix, color) in cases {
+        ctx.reset();
+        ctx.push_filter_layer(Filter::from_primitive(FilterPrimitive::ColorMatrix {
+            matrix,
+        }));
+        ctx.set_paint(AlphaColor::<vello_common::color::Srgb>::new(color));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
+        ctx.pop_layer();
+        ctx.render();
+        let image = ctx.snapshot();
+        let pixel = image.sample(8, 8);
+        let expected = ColorMatrix::new(matrix).apply_premultiplied([
+            color[0] * color[3],
+            color[1] * color[3],
+            color[2] * color[3],
+            color[3],
+        ]);
+        for (actual, expected) in [pixel.r, pixel.g, pixel.b, pixel.a]
+            .into_iter()
+            .zip(expected)
+        {
+            assert!(
+                (f32::from(actual) - expected * 255.0).abs() <= 2.0,
+                "{pixel:?} vs {expected}"
+            );
+        }
+    }
+}
+
 // TODO: Update this test to use non-wide tile dimensions.
 #[vello_test(skip_multithreaded, width = 256, height = 40)]
 fn filter_flood(ctx: &mut impl Renderer) {

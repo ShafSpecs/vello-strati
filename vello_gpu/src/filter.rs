@@ -736,6 +736,27 @@ mod tests {
     use vello_common::color::AlphaColor;
     use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
 
+    #[test]
+    fn color_matrix_record_and_pass() {
+        let matrix = ColorMatrix::new(core::array::from_fn(|i| {
+            f32::from(u16::try_from(i).unwrap()) / 8.0
+        }));
+        let data: GpuFilterData = GpuColorMatrix::from(&matrix).into();
+        assert_eq!(GpuFilterData::SIZE_TEXELS, 4);
+        assert_eq!(data.data[0], filter_type::COLOR_MATRIX);
+        assert_eq!(&data.data[1..11], &matrix.packed_f16());
+        assert_eq!(&data.data[11..], &[0; 5]);
+        let mut plan = FilterPassPlan::default();
+        plan.init([filter_op(data, 0)], SizeU16::new(64));
+        assert_eq!(
+            step_layout(&plan),
+            alloc::vec![
+                alloc::vec![(0, pass_kind::COLOR_MATRIX)],
+                alloc::vec![(0, pass_kind::COPY)]
+            ]
+        );
+    }
+
     fn region(parity: TextureParity) -> TextureRegion {
         TextureRegion {
             target: LayerTextureId::new(parity, 0),

@@ -26,7 +26,8 @@ impl ColorMatrix {
     pub fn packed_f16(&self) -> [u32; 10] {
         let mut out = [0_u32; 10];
         for (i, pair) in out.iter_mut().enumerate() {
-            *pair = u32::from(f16_bits(self.matrix[2 * i])) | (u32::from(f16_bits(self.matrix[2 * i + 1])) << 16);
+            *pair = u32::from(f16_bits(self.matrix[2 * i]))
+                | (u32::from(f16_bits(self.matrix[2 * i + 1])) << 16);
         }
         out
     }
@@ -56,7 +57,10 @@ impl ColorMatrix {
 }
 
 /// IEEE 754 half-precision bits of `x`, rounded to nearest even.
-#[expect(clippy::cast_possible_truncation, reason = "bit manipulation of f16 fields")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "bit manipulation of f16 fields"
+)]
 fn f16_bits(x: f32) -> u16 {
     let bits = x.to_bits();
     let sign = ((bits >> 16) & 0x8000) as u16;
@@ -71,7 +75,11 @@ fn f16_bits(x: f32) -> u16 {
         return sign | 0x7c00;
     }
     let round = |value: u32, remainder: u32, halfway: u32| {
-        if remainder > halfway || (remainder == halfway && value & 1 == 1) { value + 1 } else { value }
+        if remainder > halfway || (remainder == halfway && value & 1 == 1) {
+            value + 1
+        } else {
+            value
+        }
     };
     if e <= 0 {
         // Subnormal (or zero) in f16.
@@ -84,7 +92,11 @@ fn f16_bits(x: f32) -> u16 {
         return sign | round(value, full & ((1 << shift) - 1), 1 << (shift - 1)) as u16;
     }
     // A carry out of the mantissa correctly rounds up into the exponent.
-    sign | round(((e as u32) << 10) | (mantissa >> 13), mantissa & 0x1fff, 0x1000) as u16
+    sign | round(
+        ((e as u32) << 10) | (mantissa >> 13),
+        mantissa & 0x1fff,
+        0x1000,
+    ) as u16
 }
 
 #[cfg(test)]
@@ -95,7 +107,10 @@ mod tests {
     #[test]
     fn identity_and_grayscale() {
         let c = [0.25, 0.5, 0.125, 0.5];
-        assert_eq!(ColorMatrix::new(matrices::IDENTITY).apply_premultiplied(c), c);
+        assert_eq!(
+            ColorMatrix::new(matrices::IDENTITY).apply_premultiplied(c),
+            c
+        );
         let g = ColorMatrix::new(matrices::GRAYSCALE).apply_premultiplied([1.0, 0.0, 0.0, 1.0]);
         assert!((g[0] - 0.2126).abs() < 1e-6 && (g[1] - 0.2126).abs() < 1e-6 && g[3] == 1.0);
     }
@@ -108,7 +123,10 @@ mod tests {
             0.0, 0.0, 1.0, 0.0, 0.0, //
             0.0, 0.0, 0.0, 1.0, 0.0,
         ]);
-        assert_eq!(m.apply_premultiplied([0.0, 0.0, 0.0, 0.0]), [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(
+            m.apply_premultiplied([0.0, 0.0, 0.0, 0.0]),
+            [0.0, 0.0, 0.0, 0.0]
+        );
         assert_eq!(m.apply_premultiplied([0.8, 0.0, 0.0, 1.0])[0], 1.0);
     }
 
@@ -116,7 +134,11 @@ mod tests {
         let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
         let e = i32::from((h >> 10) & 0x1f);
         let m = f32::from(h & 0x3ff);
-        sign * if e == 0 { m * 2f32.powi(-24) } else { (1.0 + m / 1024.0) * 2f32.powi(e - 15) }
+        sign * if e == 0 {
+            m * 2_f32.powi(-24)
+        } else {
+            (1.0 + m / 1024.0) * 2_f32.powi(e - 15)
+        }
     }
 
     #[test]
@@ -125,9 +147,38 @@ mod tests {
         assert_eq!(f16_bits(0.5), 0x3800);
         assert_eq!(f16_bits(-2.0), 0xc000);
         assert_eq!(f16_bits(0.0), 0);
-        for x in [0.2126_f32, 0.7152, 0.0722, 0.393, -0.2, 1.4, 0.1, 1e-5, 3.75] {
+        for x in [
+            0.2126_f32, 0.7152, 0.0722, 0.393, -0.2, 1.4, 0.1, 1e-5, 3.75,
+        ] {
             let y = decode(f16_bits(x));
             assert!((y - x).abs() <= x.abs() * 1e-3 + 6e-8, "{x} -> {y}");
         }
+    }
+
+    #[test]
+    fn alpha_offsets_and_stage_clamping() {
+        let mut matrix = matrices::IDENTITY;
+        matrix[0] = 4.0;
+        matrix[6] = -1.0;
+        matrix[18] = 0.5;
+        let filter = ColorMatrix::new(matrix);
+        assert_eq!(
+            filter.apply_premultiplied([0.25, 0.25, 0.125, 0.5]),
+            [0.25, 0.0, 0.0625, 0.25]
+        );
+        let mut offset = matrices::IDENTITY;
+        offset[4] = 0.5;
+        offset[19] = 0.5;
+        assert_eq!(
+            ColorMatrix::new(offset).apply_premultiplied([0.0; 4]),
+            [0.25, 0.0, 0.0, 0.5]
+        );
+        let mut halve = matrices::IDENTITY;
+        halve[0] = 0.5;
+        assert_eq!(
+            ColorMatrix::new(halve)
+                .apply_premultiplied(filter.apply_premultiplied([0.5, 0.0, 0.0, 1.0]))[0],
+            0.25
+        );
     }
 }

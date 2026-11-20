@@ -17,8 +17,8 @@ mod shift;
 
 use context::ScratchBuffer;
 use vello_common::color::{PremulColor, Srgb};
-use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter::PreparedFilter;
+use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
